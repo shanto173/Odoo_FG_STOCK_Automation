@@ -21,7 +21,7 @@ jobs:
           pip install requests pandas gspread gspread_dataframe google-auth pytz openpyxl
 
       - name: Write Google credentials
-        run: echo "${{ secrets.GCREDS_JSON }}" > gcreds.json
+        run: echo "${{ secrets.GCREDS_JSON }}" | base64 --decode > gcreds.json
 
       - name: Run FG stock Data
         run: python FG_stock_data_pull.py
