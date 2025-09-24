@@ -1,0 +1,1 @@
+# Odoo_FG_STOCK_Automation
