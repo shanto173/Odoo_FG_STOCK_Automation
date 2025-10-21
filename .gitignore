@@ -1,4 +1,5 @@
 /.env
 /Credential.json
 /encoded.txt
+/gcreds.json
 

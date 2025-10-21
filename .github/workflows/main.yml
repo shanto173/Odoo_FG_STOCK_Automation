@@ -4,6 +4,24 @@ on:
   schedule:
     - cron: '0 * * * *'  # Every hour at minute 0
   workflow_dispatch:
+    inputs:
+      script_to_run:
+        description: 'Select which script(s) to run'
+        required: true
+        default: FG_stock_data_pull.py
+        type: choice
+        options:
+          - FG_stock_data_pull.py
+          - FG_stock_dashboard_data.py
+          - Both
+      from_date:
+        description: 'Start date (YYYY-MM-DD). Leave empty for 1st of current month'
+        required: false
+        default: ''
+      to_date:
+        description: 'End date (YYYY-MM-DD). Leave empty for today'
+        required: false
+        default: ''
 
 jobs:
   fetch-and-paste:
@@ -18,15 +36,25 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests pandas gspread gspread_dataframe google-auth pytz openpyxl
+          pip install requests pandas gspread gspread_dataframe google-auth pytz openpyxl python-dotenv
 
       - name: Write Google credentials
         run: echo "${{ secrets.GCREDS_JSON }}" | base64 --decode > gcreds.json
 
-      - name: Run FG stock Data
-        run: python FG_stock_data_pull.py
+      - name: Run Selected Script(s)
+        run: |
+          if [[ "${{ github.event.inputs.script_to_run }}" == "FG_stock_data_pull.py" ]]; then
+              python FG_stock_data_pull.py
+          elif [[ "${{ github.event.inputs.script_to_run }}" == "FG_stock_dashboard_data.py" ]]; then
+              python FG_stock_dashboard_data.py
+          else
+              python FG_stock_data_pull.py
+              python -u FG_stock_dashboard_data.py
+          fi
         env:
           ODOO_URL: ${{ secrets.ODOO_URL }}
           ODOO_DB: ${{ secrets.ODOO_DB }}
           ODOO_USERNAME: ${{ secrets.ODOO_USERNAME }}
           ODOO_PASSWORD: ${{ secrets.ODOO_PASSWORD }}
+          FROM_DATE: ${{ github.event.inputs.from_date }}
+          TO_DATE: ${{ github.event.inputs.to_date }}
