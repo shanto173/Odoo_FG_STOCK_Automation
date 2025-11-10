@@ -1,8 +1,8 @@
 name: FG stock Odoo to Google Sheet
 
 on:
-  # schedule:
-  #   - cron: '0 * * * *'  # Every hour at minute 0
+  schedule:
+    - cron: '0 */2 * * *'
   workflow_dispatch:
     inputs:
       script_to_run:
