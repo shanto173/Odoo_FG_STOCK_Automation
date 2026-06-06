@@ -50,39 +50,17 @@ def login():
     else:
         raise Exception("❌ Odoo login failed")
 
-# ========= SWITCH COMPANY ==========
-def switch_company(company_id):
-    payload = {
-        "jsonrpc": "2.0",
-        "method": "call",
-        "params": {
-            "model": "res.users",
-            "method": "write",
-            "args": [[USER_ID], {"company_id": company_id}],
-            "kwargs": {
-                "context": {
-                    "allowed_company_ids": [company_id],
-                    "company_id": company_id
-                }
-            }
-        }
-    }
-    r = session.post(f"{ODOO_URL}/web/dataset/call_kw", json=payload)
-    r.raise_for_status()
-    if "error" in r.json():
-        print(f"❌ Failed to switch to company {company_id}")
-        return False
-    print(f"🔄 Switched to company {company_id}")
-    return True
-
 # ========= FETCH OPERATION DETAILS ==========
-def fetch_operation_details(company_id, report_id):
+# The Odoo web UI fetches ALL companies in ONE call. It sends args=[[]] (empty)
+# and relies on context.allowed_company_ids to decide which companies' data to
+# return. The response is {"result": {"datas": {OA_no: [entry, entry, ...]}}}.
+# Each entry carries its own company_id, so we split locally afterwards.
+def fetch_all_data():
     context = {
         "lang": "en_US",
         "tz": "Asia/Dhaka",
         "uid": USER_ID,
-        "allowed_company_ids": [company_id],
-        "current_company_id": company_id
+        "allowed_company_ids": list(COMPANIES.keys()),
     }
     payload = {
         "jsonrpc": "2.0",
@@ -90,43 +68,49 @@ def fetch_operation_details(company_id, report_id):
         "params": {
             "model": "operation.details",
             "method": "retrive_data_from_operation_details",
-            "args": [[report_id]],
-            "kwargs": {"context": context}
-        }
+            "args": [[]],
+            "kwargs": {"context": context},
+        },
     }
     r = session.post(
         f"{ODOO_URL}/web/dataset/call_kw/operation.details/retrive_data_from_operation_details",
-        json=payload
+        json=payload,
     )
     r.raise_for_status()
-    data = r.json().get("result", [])
-    df = pd.DataFrame(data)
-    print(f"📦 {COMPANIES[company_id]['name']}: {len(df)} rows fetched")
-    return df
+    body = r.json()
+    if "error" in body:
+        raise Exception(f"❌ Odoo error: {body['error']}")
+    datas = body.get("result", {}).get("datas", {})
+    total = sum(len(v) for v in datas.values())
+    print(f"📦 Fetched {total} line entries across {len(datas)} OAs")
+    return datas
 
 # ========= PROCESS DATA ==========
-def process_data(df):
+# datas is a dict: {OA_no: [entry, ...]}. Flatten every entry and keep only the
+# rows whose company_id matches the company we are building the sheet for.
+def process_data(datas, company_id):
     all_rows = []
-    for _, row in df.iterrows():
-        entries = row.get('datas') if isinstance(row.get('datas'), list) else row.get('delivery_data')
+    for entries in datas.values():
         if not isinstance(entries, list):
             continue
         for e in entries:
+            if e.get('company_id') != company_id:
+                continue
             all_rows.append({
                 'OA': e.get('oa_name'),
                 'Order Date': e.get('date_order'),
                 'Closing Date': e.get('closing_date'),
                 'Sample': e.get('sample'),
                 'PI': e.get('pi'),
-                'Customer': e.get('partner_id'),
-                'Buyer': e.get('buyer_id'),
+                'Customer': e.get('customer_name'),
+                'Buyer': e.get('buyer_name'),
                 'Invoice No': e.get('invoice_line_id'),
                 'Invoice Date': e.get('invoice_date'),
                 'LC Number': e.get('lc_number'),
                 'LC Date': e.get('lc_date'),
-                'Sales Person': e.get('sales_person'),
-                'Region': e.get('region'),
-                'DSM': e.get('dsm'),
+                'Sales Person': e.get('sales_person_name'),
+                'Region': e.get('region_name'),
+                'DSM': e.get('core_leader_name'),
                 'Item': e.get('fg_categ_type'),
                 'Product': e.get('product_id'),
                 'Order QTY': e.get('order_qty'),
@@ -164,8 +148,8 @@ def paste_to_gsheet(df, sheet_name):
 # ========= MAIN ==========
 if __name__ == "__main__":
     login()
+    datas = fetch_all_data()
     for cid, info in COMPANIES.items():
-        if switch_company(cid):
-            raw_df = fetch_operation_details(cid, cid)
-            df = process_data(raw_df)
-            paste_to_gsheet(df, info["sheet"])
+        df = process_data(datas, cid)
+        print(f"   {info['name']} (company {cid}): {len(df)} rows")
+        paste_to_gsheet(df, info["sheet"])
